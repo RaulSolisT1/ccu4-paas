@@ -1,0 +1,37 @@
+name: ci-cd
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+  packages: write
+jobs:
+  pipeline:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validar codigo
+        run: |
+          python3 -m venv .venv
+          . .venv/bin/activate
+          pip install flake8
+          python -m py_compile api/main.py
+          flake8 api --max-line-length 120
+
+      - name: Login al registry
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Build y push
+        run: |
+          OWNER="${GITHUB_REPOSITORY_OWNER,,}"
+          docker build -t ghcr.io/$OWNER/api:latest -t ghcr.io/$OWNER/api:${{ github.sha }} ./api
+          docker push ghcr.io/$OWNER/api:latest
+          docker push ghcr.io/$OWNER/api:${{ github.sha }}
+
+      - name: Rolling update local
+        run: |
+          cd /home/usuario/ccu4-paas
+          docker compose pull api
+          docker compose up -d --no-deps api
+          docker exec lb nginx -s reload
